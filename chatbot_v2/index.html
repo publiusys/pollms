@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>LLM Study</title>
+<style>
+  :root {
+    --bg: #111318;
+    --surface: #1c1f26;
+    --surface2: #242830;
+    --border: #2e3340;
+    --text: #f0f2f5;
+    --text2: #b8bfc9;
+    --text3: #6b7280;
+    --green: #22c55e;
+    --yellow: #eab308;
+    --red: #ef4444;
+    --red-bg: #2a1414;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: var(--font); display: flex; height: 100vh;
+  }
+
+  /* ---------- Sidebar ---------- */
+  .sidebar {
+    width: 280px; flex-shrink: 0; background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; padding: 20px;
+  }
+  .sidebar h1 { font-size: 15px; font-weight: 600; margin-bottom: 24px; }
+  .panel { background: var(--surface2); border: 1px solid var(--border);
+           border-radius: 10px; padding: 14px; margin-bottom: 14px; }
+  .panel h4 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+              color: var(--text3); font-family: var(--mono); margin-bottom: 10px; }
+  .eco-row { display: flex; justify-content: space-between; align-items: center;
+             padding: 5px 0; font-size: 13px; }
+  .eco-key { color: var(--text2); font-family: var(--mono); font-size: 12px; }
+  .eco-val { color: var(--text); font-family: var(--mono); font-size: 12px; transition: color .25s, opacity .25s; }
+  .eco-row.dim  { opacity: .35; transition: opacity .25s; }
+  .eco-row.live { opacity: 1;   transition: opacity .25s; }
+  .eco-val.pulse  { color: var(--green);  font-weight: 600; }
+  .eco-val.idlehi { color: var(--yellow); font-weight: 600; }
+  .eco-val.highlight { color: var(--green); font-weight: 600; }
+
+  /* ---------- Main ---------- */
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .header {
+    height: 56px; flex-shrink: 0; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; padding: 0 24px; gap: 10px;
+  }
+  .status-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--text3); }
+  .status-dot.connected { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .status-dot.error { background: var(--red); }
+  .status-dot.connecting { background: var(--yellow); }
+  #modelLabel { font-size: 13px; color: var(--text2); font-family: var(--mono); }
+
+  .messages { flex: 1; overflow-y: auto; padding: 24px; }
+  .empty-state { height: 100%; display: flex; flex-direction: column;
+                 align-items: center; justify-content: center; color: var(--text3);
+                 font-family: var(--mono); font-size: 13px; gap: 6px; }
+
+  .row { display: flex; gap: 12px; margin-bottom: 22px; max-width: 820px; }
+  .avatar { width: 28px; height: 28px; border-radius: 7px; flex-shrink: 0;
+            display: flex; align-items: center; justify-content: center;
+            font-family: var(--mono); font-size: 11px; font-weight: 600; }
+  .row.user .avatar { background: var(--surface2); color: var(--text2); }
+  .row.assistant .avatar { background: #14321f; color: var(--green); }
+  .col { min-width: 0; flex: 1; }
+  .bubble { background: var(--surface); border: 1px solid var(--border);
+            border-radius: 10px; padding: 12px 14px; font-size: 14px;
+            line-height: 1.6; color: var(--text); white-space: normal; word-wrap: break-word; }
+  .row.user .bubble { background: var(--surface2); }
+  .bubble pre { background: #0c0e12; border: 1px solid var(--border); border-radius: 8px;
+                padding: 10px; overflow-x: auto; margin: 8px 0; }
+  .bubble code { font-family: var(--mono); font-size: 12.5px; }
+  .msg-meta { display: flex; align-items: center; gap: 6px; margin-top: 6px;
+              font-family: var(--mono); font-size: 11px; color: var(--text3); }
+  .meta-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border); }
+
+  /* ---------- Composer ---------- */
+  .composer { flex-shrink: 0; border-top: 1px solid var(--border); padding: 16px 24px 18px; }
+  .composer-inner { max-width: 820px; margin: 0 auto; }
+  .input-wrap { display: flex; gap: 10px; align-items: flex-end;
+                background: var(--surface); border: 1px solid var(--border);
+                border-radius: 12px; padding: 8px 8px 8px 14px; }
+  textarea#input { flex: 1; background: transparent; border: none; outline: none;
+                   color: var(--text); font-family: var(--font); font-size: 14px;
+                   resize: none; line-height: 1.5; max-height: 140px; }
+  #sendBtn { flex-shrink: 0; width: 36px; height: 36px; border-radius: 9px; border: none;
+             background: var(--green); color: #06210f; cursor: pointer;
+             display: flex; align-items: center; justify-content: center; transition: background .2s; }
+  #sendBtn.streaming { background: var(--red); color: #fff; }
+  #sendBtn:disabled { background: var(--surface2); color: var(--text3); cursor: not-allowed; }
+  .disclaimer { text-align: center; font-size: 12px; color: var(--text3);
+                margin-top: 8px; font-family: var(--font); }
+
+  .toast { position: fixed; bottom: 80px; left: 50%;
+           transform: translateX(-50%) translateY(10px);
+           background: var(--red-bg); border: 1px solid #7a2020; color: #fca5a5;
+           padding: 8px 16px; border-radius: 8px; font-size: 13px; font-family: var(--mono);
+           opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+  <!-- ================= Sidebar ================= -->
+  <aside class="sidebar">
+    <h1>MochiAI</h1>
+
+    <div class="panel">
+      <h4>session</h4>
+      <div class="eco-row">
+        <span class="eco-key">tokens generated</span>
+        <span class="eco-val highlight" id="tt-tokens">0</span>
+      </div>
+      <div class="eco-row dim" id="row-idle">
+        <span class="eco-key">idle power</span>
+        <span class="eco-val" id="tt-idle">—</span>
+      </div>
+      <div class="eco-row dim" id="row-active">
+        <span class="eco-key">active power</span>
+        <span class="eco-val" id="tt-active">—</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ================= Main ================= -->
+  <main class="main">
+    <div class="header">
+      <div class="status-dot" id="statusDot"></div>
+      <span id="modelLabel">connecting…</span>
+    </div>
+
+    <div class="messages" id="messages">
+      <div class="empty-state" id="emptyState">
+        <div>type a message to begin</div>
+      </div>
+    </div>
+
+    <div class="composer">
+      <div class="composer-inner">
+        <div class="input-wrap">
+          <textarea id="input" rows="1" placeholder="Message…"
+                    oninput="autoResize(this)" onkeydown="handleKey(event)"></textarea>
+          <button id="sendBtn" disabled onclick="onSendClick()" aria-label="Send"></button>
+        </div>
+        <div class="disclaimer">Responses are AI-generated and may be inaccurate.</div>
+      </div>
+    </div>
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+  <!-- Hidden config (same-origin proxy serves /v1/*) -->
+  <input type="hidden" id="baseUrl" value="" />
+  <input type="hidden" id="modelId" value="" />
+  <input type="hidden" id="temperature" value="0.7" />
+  <input type="hidden" id="maxTokens" value="1024" />
+  <input type="hidden" id="systemPrompt" value="You are a helpful assistant." />
+
+<script>
+  // ---------------- State ----------------
+  let history = [], isStreaming = false, connectedModel = null, abortController = null;
+  let sessionTokens = 0;
+  let powerState = { current_w: 0, idle_w: null, active: false };
+
+  const SEND_ICON = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  const STOP_ICON = `<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>`;
+
+  // ---------------- Power telemetry ----------------
+  async function pollPower() {
+    try {
+      const r = await fetch("/power");
+      powerState = await r.json();
+    } catch {}
+    renderPower();
+  }
+  setInterval(pollPower, 1000);
+
+  function renderPower() {
+    const idleEl = document.getElementById("tt-idle");
+    const actEl  = document.getElementById("tt-active");
+    const rowIdle = document.getElementById("row-idle");
+    const rowAct  = document.getElementById("row-active");
+
+    idleEl.textContent = powerState.idle_w != null ? powerState.idle_w.toFixed(2) + " W" : "—";
+    actEl.textContent  = isStreaming ? powerState.current_w.toFixed(2) + " W" : "—";
+
+    if (isStreaming) {
+      rowAct.classList.add("live");  rowAct.classList.remove("dim");
+      rowIdle.classList.add("dim");  rowIdle.classList.remove("live");
+      actEl.classList.add("pulse");  idleEl.classList.remove("idlehi");
+    } else {
+      rowIdle.classList.add("live"); rowIdle.classList.remove("dim");
+      rowAct.classList.add("dim");   rowAct.classList.remove("live");
+      idleEl.classList.add("idlehi"); actEl.classList.remove("pulse");
+    }
+  }
+
+  async function setActive(flag) {
+    try {
+      await fetch("/active", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ active: flag })
+      });
+    } catch {}
+  }
+
+  // ---------------- Token accumulator ----------------
+  function updateTokens() {
+    document.getElementById("tt-tokens").textContent = sessionTokens.toLocaleString();
+  }
+
+  // ---------------- UI helpers ----------------
+  function showToast(msg, d = 3000) {
+    const t = document.getElementById("toast");
+    t.textContent = msg; t.classList.add("show");
+    setTimeout(() => t.classList.remove("show"), d);
+  }
+  function setStatus(state, label) {
+    document.getElementById("statusDot").className = "status-dot " + state;
+    document.getElementById("modelLabel").textContent = label;
+  }
+  function autoResize(el) {
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, 140) + "px";
+  }
+  function setStreamingUI(streaming) {
+    const btn = document.getElementById("sendBtn");
+    if (streaming) {
+      btn.classList.add("streaming"); btn.innerHTML = STOP_ICON; btn.disabled = false;
+    } else {
+      btn.classList.remove("streaming"); btn.innerHTML = SEND_ICON;
+    }
+  }
+  function removeEmptyState() {
+    const e = document.getElementById("emptyState");
+    if (e) e.remove();
+  }
+  function handleKey(e) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      if (!isStreaming) sendMessage();
+    }
+  }
+  function onSendClick() {
+    if (isStreaming) stopStreaming();
+    else sendMessage();
+  }
+  function stopStreaming() {
+    if (abortController) abortController.abort();
+  }
+
+  function appendMessage(role, text) {
+    removeEmptyState();
+    const msgs = document.getElementById("messages");
+    const row = document.createElement("div");
+    row.className = "row " + role;
+    const avatar = document.createElement("div");
+    avatar.className = "avatar";
+    avatar.textContent = role === "user" ? "you" : "ai";
+    const col = document.createElement("div");
+    col.className = "col";
+    const bubble = document.createElement("div");
+    bubble.className = "bubble";
+    if (role === "assistant") {
+      bubble.innerHTML = `<span style="color:var(--text3);font-family:var(--mono);font-size:12px">…</span>`;
+      const meta = document.createElement("div");
+      meta.className = "msg-meta";
+      const dot = document.createElement("div"); dot.className = "meta-dot";
+      const txt = document.createElement("span");
+      meta.append(dot, txt);
+      col.appendChild(bubble); col.appendChild(meta);
+      bubble._dot = dot; bubble._txt = txt;
+    } else {
+      bubble.textContent = text;
+      col.appendChild(bubble);
+    }
+    row.append(avatar, col);
+    msgs.appendChild(row);
+    msgs.scrollTop = msgs.scrollHeight;
+    return bubble;
+  }
+
+  function renderMarkdown(text) {
+    return text
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/```(\w*)\n?([\s\S]*?)```/g, (_, l, c) => `<pre><code>${c.trim()}</code></pre>`)
+      .replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/\*(.+?)\*/g, "<em>$1</em>")
+      .replace(/\n/g, "<br>");
+  }
+
+  function finalizeAssistant(bubble, fullText) {
+    if (bubble._dot) bubble._dot.style.background = "var(--green)";
+    if (bubble._txt) bubble._txt.textContent = sessionTokens.toLocaleString() + " tokens (session)";
+    history.push({ role: "assistant", content: fullText });
+    updateTokens();
+  }
+
+  // ---------------- Connect ----------------
+  async function connect() {
+    setStatus("connecting", "connecting…");
+    const base = (document.getElementById("baseUrl").value || "") + "/v1";
+    try {
+      const r = await fetch(base + "/models");
+      const data = await r.json();
+      connectedModel = (data.data && data.data[0] && data.data[0].id) || "local-model";
+      document.getElementById("modelId").value = connectedModel;
+      setStatus("connected", "online");
+      document.getElementById("sendBtn").disabled = !document.getElementById("input").value.trim();
+      document.getElementById("input").focus();
+    } catch (e) {
+      setStatus("error", "connection failed");
+      showToast("Cannot reach model server");
+    }
+  }
+
+  // Send/Stream text
+  async function sendMessage() {
+    const input = document.getElementById("input");
+    const text = input.value.trim();
+    if (!text || isStreaming) return;
+    if (!connectedModel) { showToast("Connect to a model first"); return; }
+
+    input.value = ""; input.style.height = "auto";
+    isStreaming = true;
+    abortController = new AbortController();
+    setStreamingUI(true);
+    setActive(true);
+    renderPower();
+
+    history.push({ role: "user", content: text });
+    appendMessage("user", text);
+    const bubble = appendMessage("assistant", "");
+    let fullText = "";
+
+    // ---- smooth render via requestAnimationFrame batching ----
+    const msgs = document.getElementById("messages");
+    let pendingRender = false;
+    function scheduleRender() {
+      if (pendingRender) return;
+      pendingRender = true;
+      requestAnimationFrame(() => {
+        bubble.innerHTML = renderMarkdown(fullText);
+        // only auto-scroll if user is already near the bottom
+        const nearBottom =
+          msgs.scrollHeight - msgs.scrollTop - msgs.clientHeight < 120;
+        if (nearBottom) msgs.scrollTop = msgs.scrollHeight;
+        pendingRender = false;
+      });
+    }
+
+    const sys = document.getElementById("systemPrompt").value;
+    const body = {
+      model: connectedModel,
+      messages: [{ role: "system", content: sys }, ...history],
+      temperature: parseFloat(document.getElementById("temperature").value),
+      max_tokens: parseInt(document.getElementById("maxTokens").value),
+      stream: true,
+      stream_options: { include_usage: true }
+    };
+
+    try {
+      const base = (document.getElementById("baseUrl").value || "") + "/v1";
+      const resp = await fetch(base + "/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: abortController.signal
+      });
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop();
+        for (const line of lines) {
+          const l = line.trim();
+          if (!l.startsWith("data:")) continue;
+          const payload = l.slice(5).trim();
+          if (payload === "[DONE]") continue;
+          let json;
+          try { json = JSON.parse(payload); } catch { continue; }
+
+          const delta = json.choices && json.choices[0] && json.choices[0].delta
+                        ? json.choices[0].delta.content : "";
+          if (delta) {
+            fullText += delta;
+            sessionTokens += approxTokens(delta);
+            updateTokens();      // cheap text update, fine per token
+            renderPower();       // cheap, fine per token
+            scheduleRender();    // coalesced markdown render, max ~60fps
+          }
+          // reconcile to exact token count if server reports usage
+          if (json.usage && typeof json.usage.completion_tokens === "number") {
+            sessionTokens += (json.usage.completion_tokens - turnEstimate());
+            updateTokens();
+          }
+        }
+      }
+      // flush one final render so the last tokens definitely show
+      requestAnimationFrame(() => { bubble.innerHTML = renderMarkdown(fullText); });
+      finalizeAssistant(bubble, fullText);
+    } catch (e) {
+      if (e.name === "AbortError") {
+        if (!fullText) {
+          bubble.innerHTML = `<span style="color:var(--text3);font-family:var(--mono);font-size:12px">(paused)</span>`;
+        } else {
+          bubble.innerHTML = renderMarkdown(fullText);  // show what we have
+          finalizeAssistant(bubble, fullText);
+        }
+      } else {
+        bubble.innerHTML = `<span style="color:#fca5a5;font-family:var(--mono);font-size:12px">error: ${e.message}</span>`;
+        history.pop();
+      }
+    } finally {
+      isStreaming = false;
+      abortController = null;
+      setStreamingUI(false);
+      setActive(false);
+      renderPower();
+      document.getElementById("sendBtn").disabled = !input.value.trim();
+      input.focus();
+    }
+  }
+
+  // crude per-chunk token estimate for live ticking; reconciled from usage at end
+  let _turnEstimate = 0;
+  function approxTokens(s) {
+    const t = Math.max(1, Math.round(s.length / 4));
+    _turnEstimate += t;
+    return t;
+  }
+  function turnEstimate() { const v = _turnEstimate; _turnEstimate = 0; return v; }
+
+  // ---------------- Init ----------------
+  window.addEventListener("load", () => {
+    document.getElementById("sendBtn").innerHTML = SEND_ICON;
+    document.getElementById("input").addEventListener("input", function () {
+      if (isStreaming) return;
+      document.getElementById("sendBtn").disabled = !this.value.trim();
+    });
+    updateTokens();
+    renderPower();
+    pollPower();
+    connect();
+  });
+</script>
+</body>
+</html>
