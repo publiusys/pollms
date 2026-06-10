@@ -6,10 +6,10 @@ Proxy + power monitor for DGX Spark.
 - Samples powermetrics, exposes /power
 Run with: sudo python3 server.py
 """
-import json, subprocess, threading, time, urllib.request
+import json, subprocess, threading, time, urllib.request, urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-LLAMA = "http://0.0.0.0:8080"
+LLAMA = "http://127.0.0.1:8080"
 PORT = 8000
 
 # ---- shared power state ----
@@ -123,6 +123,14 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             # connection already gone; nothing to send
             return
+        except urllib.error.HTTPError as e:
+            # forward llama-server's real error (status + JSON body) instead of masking it
+            try:
+                err_body = e.read() or json.dumps({"error": str(e)}).encode()
+                self._send(e.code, err_body,
+                           e.headers.get("Content-Type", "application/json"))
+            except (BrokenPipeError, ConnectionResetError):
+                pass
         except Exception as e:
              # only try to respond if the socket is still alive
             try:

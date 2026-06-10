@@ -206,7 +206,7 @@
   <input type="hidden" id="baseUrl" value="" />
   <input type="hidden" id="modelId" value="" />
   <input type="hidden" id="temperature" value="0.7" />
-  <input type="hidden" id="maxTokens" value="1024" />
+  <input type="hidden" id="maxTokens" value="4096" />
   <input type="hidden" id="systemPrompt" value="You are a helpful assistant." />
 
 <script>
@@ -444,9 +444,20 @@
         signal: abortController.signal
       });
 
+      // surface server errors (context overflow, bad request, proxy 502, …)
+      if (!resp.ok) {
+        let msg = "HTTP " + resp.status;
+        try {
+          const j = await resp.json();
+          msg = (j.error && (j.error.message || j.error)) || msg;
+        } catch {}
+        throw new Error(msg);
+      }
+
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
       let buf = "";
+      let reasoningTokens = 0;   // thinking models (Qwen3 etc.) stream reasoning_content first
 
       while (true) {
         const { done, value } = await reader.read();
@@ -462,8 +473,20 @@
           let json;
           try { json = JSON.parse(payload); } catch { continue; }
 
-          const delta = json.choices && json.choices[0] && json.choices[0].delta
-                        ? json.choices[0].delta.content : "";
+          const d = json.choices && json.choices[0] && json.choices[0].delta;
+          const delta = (d && d.content) || "";
+          const rdelta = (d && (d.reasoning_content || d.reasoning)) || "";
+
+          // thinking phase: count tokens + show indicator, but never display/store the text
+          if (rdelta) {
+            const t = approxTokens(rdelta);   // reasoning tokens are generated tokens too
+            reasoningTokens += t;
+            sessionTokens += t;
+            updateTokens();
+            if (!fullText) {
+              bubble.innerHTML = `<span style="color:var(--text3);font-family:var(--mono);font-size:12px">thinking… (${reasoningTokens} tokens)</span>`;
+            }
+          }
           if (delta) {
             fullText += delta;
             sessionTokens += approxTokens(delta);
@@ -478,12 +501,20 @@
           }
         }
       }
-      // flush one final render so the last tokens definitely show
-      requestAnimationFrame(() => { bubble.innerHTML = renderMarkdown(fullText); });
-      finalizeAssistant(bubble, fullText);
+      if (fullText) {
+        // flush one final render so the last tokens definitely show
+        requestAnimationFrame(() => { bubble.innerHTML = renderMarkdown(fullText); });
+        finalizeAssistant(bubble, fullText);
+      } else {
+        // no visible content (e.g. max_tokens exhausted while thinking):
+        // don't push an empty assistant turn — remove the user turn so history stays clean
+        history.pop();
+        bubble.innerHTML = `<span style="color:#fca5a5;font-family:var(--mono);font-size:12px">(no answer — model may have used all tokens thinking; try again)</span>`;
+      }
     } catch (e) {
       if (e.name === "AbortError") {
         if (!fullText) {
+          history.pop();  // remove dangling user turn
           bubble.innerHTML = `<span style="color:var(--text3);font-family:var(--mono);font-size:12px">(paused)</span>`;
         } else {
           bubble.innerHTML = renderMarkdown(fullText);  // show what we have
