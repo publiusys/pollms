@@ -339,6 +339,16 @@
     return bubble;
   }
 
+  // Strip a leading <think>…</think> block (used with --reasoning-format none,
+  // where llama-server sends thinking as plain text inside content)
+  function stripThink(t) {
+    const open = t.indexOf("<think>");
+    if (open === -1) return t;
+    const close = t.indexOf("</think>");
+    if (close === -1) return t.slice(0, open);          // still thinking: hide it
+    return (t.slice(0, open) + t.slice(close + 8)).trimStart();
+  }
+
   function renderMarkdown(text) {
     return text
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
@@ -416,7 +426,9 @@
       if (pendingRender) return;
       pendingRender = true;
       requestAnimationFrame(() => {
-        bubble.innerHTML = renderMarkdown(fullText);
+        const shown = stripThink(fullText);
+        if (shown) bubble.innerHTML = renderMarkdown(shown);
+        else if (fullText) bubble.innerHTML = `<span style="color:var(--text3);font-family:var(--mono);font-size:12px">thinking…</span>`;
         // only auto-scroll if user is already near the bottom
         const nearBottom =
           msgs.scrollHeight - msgs.scrollTop - msgs.clientHeight < 120;
@@ -501,10 +513,11 @@
           }
         }
       }
-      if (fullText) {
+      const visible = stripThink(fullText);
+      if (visible) {
         // flush one final render so the last tokens definitely show
-        requestAnimationFrame(() => { bubble.innerHTML = renderMarkdown(fullText); });
-        finalizeAssistant(bubble, fullText);
+        requestAnimationFrame(() => { bubble.innerHTML = renderMarkdown(visible); });
+        finalizeAssistant(bubble, visible);
       } else {
         // no visible content (e.g. max_tokens exhausted while thinking):
         // don't push an empty assistant turn — remove the user turn so history stays clean
@@ -517,8 +530,14 @@
           history.pop();  // remove dangling user turn
           bubble.innerHTML = `<span style="color:var(--text3);font-family:var(--mono);font-size:12px">(paused)</span>`;
         } else {
-          bubble.innerHTML = renderMarkdown(fullText);  // show what we have
-          finalizeAssistant(bubble, fullText);
+          const vis = stripThink(fullText);
+          if (vis) {
+            bubble.innerHTML = renderMarkdown(vis);  // show what we have
+            finalizeAssistant(bubble, vis);
+          } else {
+            history.pop();  // only thinking text so far — drop the turn
+            bubble.innerHTML = `<span style="color:var(--text3);font-family:var(--mono);font-size:12px">(paused)</span>`;
+          }
         }
       } else {
         bubble.innerHTML = `<span style="color:#fca5a5;font-family:var(--mono);font-size:12px">error: ${e.message}</span>`;
