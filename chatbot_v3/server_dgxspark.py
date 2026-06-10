@@ -62,8 +62,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
-        self.wfile.write(body)
+        self.connection.sendall(body)
 
     def do_GET(self):
         if self.path == "/power":
@@ -110,16 +111,19 @@ class Handler(BaseHTTPRequestHandler):
                                  r.headers.get("Content-Type", "application/json"))
                 self.end_headers()
                 # stream chunks (important for SSE token streaming)
+                # NOTE: must use sendall(), NOT wfile.write(). wfile is an
+                # unbuffered raw socket writer whose write() can be PARTIAL
+                # when the client reads slowly (e.g. via socat) — the dropped
+                # bytes corrupt the SSE stream and tokens vanish in the UI.
                 while True:
                     chunk = r.read(512)
                     if not chunk:
                         break
                     try:
-                        self.wfile.write(chunk)
-                        self.wfile.flush()
-                    except (BrokenPipeError, ConnectionResetError):
+                        self.connection.sendall(chunk)
+                    except (BrokenPipeError, ConnectionResetError, OSError):
                         # client (browser) aborted the stream — normal on Stop/Pause
-                        return 
+                        return
         except (BrokenPipeError, ConnectionResetError):
             # connection already gone; nothing to send
             return
