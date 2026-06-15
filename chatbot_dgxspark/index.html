@@ -252,7 +252,11 @@
 
   <!-- TODO: needs cumulative energy (kWh) + carbon intensity + trees/kgCO2 constant.
        Backend /power only gives instantaneous watts, not energy. Placeholder for now. -->
-  <div class="eco-row">Trees to Offset Carbon</div>
+  <div class="eco-row">Grams of Carbon Dioxide Generated</div>
+  <span class="eco-val highlight" id="tt-carbon">—</span>
+  <br>
+  
+  <div class="eco-row">Trees to Offset Dioxide Carbon</div>
   <span class="eco-val highlight" id="tt-trees">—</span>
   <br>
 
@@ -345,7 +349,14 @@
   let promptWords = 0, responseWords = 0;
   let sessionTokens = 0;
   let powerState = { current_w: 0, idle_w: null, active: false };
+  let energyWh = 0;        // running session energy in watt-hours
+  let lastPowerTs = null;  // timestamp of previous sample
 
+  // CIuse from ACT (Gupta et al., ISCA 2022, https://dl.acm.org/doi/10.1145/3470496.3527408), Table 6
+  const CARBON_INTENSITY_G_PER_KWH = 380;     // US avg
+  // USDA / Arbor Day (https://www.usda.gov/about-usda/news/blog/power-one-tree-very-air-we-breathe): mature tree absorbs >48 lb CO2/yr = 21,772 g/yr
+  const TREE_G_CO2_PER_YEAR = 21772;
+  
   const SEND_ICON = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
   const STOP_ICON = `<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>`;
 
@@ -356,11 +367,35 @@
   const SPEED_SCORE = null;
   
   // ---------------- Power telemetry ----------------
+  function accumulateEnergy() {
+    const now = performance.now();
+    if (lastPowerTs != null && isStreaming) {
+      const dtHours = (now - lastPowerTs) / 3.6e6;   // ms -> hours
+      let watts = powerState.current_w;
+      energyWh += watts * dtHours;
+      updateTrees();
+    }
+    lastPowerTs = now;
+  }
+
+  function updateTrees() {
+    const kWh     = energyWh / 1000;
+    const co2g    = kWh * CARBON_INTENSITY_G_PER_KWH;   // grams CO2
+    const trees = co2g / TREE_G_CO2_PER_YEAR;         // tree-years to offset
+
+    document.getElementById("tt-carbon").textContent = co2g.toFixed(5) + " g CO\u2082";
+    document.getElementById("tt-trees").textContent = trees.toFixed(10) + " trees";
+    // grams is the legible number; trees is tiny per session
+    //document.getElementById("tt-trees").textContent =
+    //  co2g.toFixed(3) + " g CO\u2082  (" + (treeYrs * 365).toFixed(2) + " tree-days)";
+  }
+  
   async function pollPower() {
     try {
       const r = await fetch("/power");
       powerState = await r.json();
     } catch {}
+    accumulateEnergy();
     renderPower();
   }
   setInterval(pollPower, 1000);
