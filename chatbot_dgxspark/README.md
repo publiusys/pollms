@@ -4,8 +4,9 @@ Runs a quantized LLM locally with llama.cpp (CUDA, GB10 GPU) behind a small
 Python proxy (`server_dgxspark.py`) that serves the web UI (`index.html`),
 forwards requests to the model, and samples board power via `sensors`.
 
-`setup_and_run.sh` fetches the chatbot files, launches `llama-server` in the
-background, and then starts `server_dgxspark.py`.
+`setup_and_run.sh` fetches the chatbot files, then launches `llama-server` and
+`server_dgxspark.py` in **separate detached `screen` sessions** so the two are
+independent — stopping the proxy leaves `llama-server` running.
 
 ## Hardware
 
@@ -22,7 +23,7 @@ NVIDIA DGX Spark — GB10 Grace-Blackwell superchip: 20-core ARM CPU
 | `python3` | Runs `server_dgxspark.py` (standard library only) | preinstalled on DGX OS |
 | `curl` | Health-check during startup | `sudo apt install curl` |
 | `sensors` | The proxy reads board power from `sensors` output | from **lm-sensors** (`sudo apt install lm-sensors`) |
-| `sudo` access | Needed to sample power | your account password |
+| `screen` | Runs llama-server and the proxy in independent sessions | `sudo apt install screen` |
 
 ### Power sensor module
 
@@ -59,8 +60,18 @@ chmod +x setup_and_run.sh
 ./setup_and_run.sh
 ```
 
-Then open **http://localhost:8000** in your browser. Press **Ctrl-C** to stop —
-the script shuts down `llama-server` automatically.
+Then open **http://localhost:8000** in your browser. The script starts both
+processes in detached `screen` sessions and exits, leaving them running.
+
+Manage the sessions:
+
+```bash
+screen -ls                          # list running sessions
+screen -r dgx-proxy                 # attach to the proxy (Ctrl-A then D to detach)
+screen -r llama-server              # attach to llama-server
+screen -S dgx-proxy -X quit         # stop ONLY the proxy — llama-server keeps running
+screen -S llama-server -X quit      # stop llama-server
+```
 
 ## llama-server flags & parameter review
 ```

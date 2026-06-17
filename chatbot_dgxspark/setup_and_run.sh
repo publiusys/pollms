@@ -7,9 +7,14 @@
 #   1. Checks required tools (incl. an already-installed llama-server).
 #   2. Fetches the chatbot files (index.html, server_dgxspark.py) if they
 #      aren't already next to this script.
-#   3. Starts llama-server in the background (CUDA, tuned flags).
-#   4. Waits until the model is loaded, then runs server_dgxspark.py (the proxy
-#      + power monitor, which reads `sensors` and needs sudo).
+#   3. Starts llama-server in its OWN detached `screen` session (CUDA, tuned
+#      flags).
+#   4. Waits until the model is loaded, then starts server_dgxspark.py (the
+#      proxy + power monitor) in a SEPARATE detached `screen` session.
+#
+# Because each process lives in its own screen session, stopping or detaching
+# from one does NOT affect the other — quitting the proxy leaves llama-server
+# running (and vice versa). The script itself exits once both are up.
 #
 # llama-server is NOT built by this script. Install it first by following
 # NVIDIA's instructions:  https://build.nvidia.com/spark/llama-cpp/instructions
@@ -20,7 +25,12 @@
 #   chmod +x setup_and_run.sh
 #   ./setup_and_run.sh
 #
-# Ctrl-C stops everything (llama-server is killed on exit).
+# Manage the sessions afterwards:
+#   screen -ls                       # list running sessions
+#   screen -r llama-server           # attach to llama-server (Ctrl-A D to detach)
+#   screen -r dgx-proxy              # attach to the proxy
+#   screen -S dgx-proxy -X quit      # stop ONLY the proxy (llama-server keeps running)
+#   screen -S llama-server -X quit   # stop llama-server
 
 set -euo pipefail
 
@@ -41,6 +51,9 @@ LLAMA_HOST="127.0.0.1"
 LLAMA_PORT="8080"
 PROXY_PORT="8000"                       # server_dgxspark.py listens here
 
+LLAMA_SCREEN="llama-server"             # screen session name for the model server
+PROXY_SCREEN="dgx-proxy"                # screen session name for the proxy
+
 # Inference tuning (see README.md for rationale)
 N_GPU_LAYERS="99"                       # offload all layers to the GPU
 CTX_SIZE="16384"                        # context window
@@ -53,7 +66,7 @@ err()  { printf '\033[1;31m[error]\033[0m %s\n' "$*" >&2; }
 
 # 1. Sanity checks ----------------------------------------------------------
 missing=()
-for tool in git python3 curl sensors; do
+for tool in git python3 curl sensors screen; do
   command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
 done
 if (( ${#missing[@]} )); then
@@ -93,11 +106,8 @@ if [[ ! -f "$MODEL_PATH" ]]; then
   exit 1
 fi
 
-# 4. Start llama-server in the background -----------------------------------
-log "Starting llama-server on http://$LLAMA_HOST:$LLAMA_PORT ..."
+# 4. Start llama-server in its own detached screen session ------------------
 # Flags live in an array so individual options can be commented out cleanly.
-# (Do NOT put '#' comments inside a '\'-continued command — that detaches the
-# redirection/'&' and llama-server runs in the foreground, hanging the script.)
 LLAMA_FLAGS=(
   -m "$MODEL_PATH"
   --host "$LLAMA_HOST" --port "$LLAMA_PORT"
@@ -108,15 +118,15 @@ LLAMA_FLAGS=(
   --reasoning-format auto
   # -b 2048 -ub 2048   # uncomment to speed up long-prompt prefill (compute headroom)
 )
-"$LLAMA_BIN" "${LLAMA_FLAGS[@]}" > "$PROJECT_DIR/llama-server.log" 2>&1 &
-LLAMA_PID=$!
 
-cleanup() {
-  log "Shutting down llama-server (pid $LLAMA_PID) ..."
-  kill "$LLAMA_PID" 2>/dev/null || true
-  wait "$LLAMA_PID" 2>/dev/null || true
-}
-trap cleanup EXIT INT TERM
+if screen -ls 2>/dev/null | grep -q "[.]$LLAMA_SCREEN[[:space:]]"; then
+  log "screen session '$LLAMA_SCREEN' already running — leaving it as is."
+else
+  log "Starting llama-server in screen session '$LLAMA_SCREEN' (http://$LLAMA_HOST:$LLAMA_PORT) ..."
+  # -L -Logfile captures the session's output to a file; -dm starts it detached.
+  screen -L -Logfile "$PROJECT_DIR/llama-server.log" \
+         -dmS "$LLAMA_SCREEN" "$LLAMA_BIN" "${LLAMA_FLAGS[@]}"
+fi
 
 # 5. Wait until the server is healthy ---------------------------------------
 log "Waiting for llama-server to load the model (logs: llama-server.log) ..."
@@ -126,20 +136,41 @@ for _ in $(seq 1 90); do
     ready=1
     break
   fi
-  if ! kill -0 "$LLAMA_PID" 2>/dev/null; then
-    err "llama-server exited early. Last 20 log lines:"
+  if ! screen -ls 2>/dev/null | grep -q "[.]$LLAMA_SCREEN[[:space:]]"; then
+    err "llama-server screen session ended early. Last 20 log lines:"
     tail -n 20 "$PROJECT_DIR/llama-server.log" >&2 || true
     exit 1
   fi
   sleep 2
 done
 if (( ! ready )); then
-  err "Timed out waiting for llama-server. Check llama-server.log."
+  err "Timed out waiting for llama-server. Check llama-server.log (session '$LLAMA_SCREEN' may still be loading)."
   exit 1
 fi
 log "llama-server is ready."
 
-# 6. Run the proxy / power monitor (needs sudo; reads `sensors`) ------------
-log "Starting server_dgxspark.py on http://localhost:$PROXY_PORT  (sudo for power sampling)."
-log "Open http://localhost:$PROXY_PORT in your browser. Press Ctrl-C to stop everything."
-python3 "$PROJECT_DIR/server_dgxspark.py"
+# 6. Start the proxy / power monitor in its own detached screen session -----
+if screen -ls 2>/dev/null | grep -q "[.]$PROXY_SCREEN[[:space:]]"; then
+  log "screen session '$PROXY_SCREEN' already running — leaving it as is."
+else
+  log "Starting server_dgxspark.py in screen session '$PROXY_SCREEN' (http://localhost:$PROXY_PORT) ..."
+  screen -L -Logfile "$PROJECT_DIR/proxy.log" \
+         -dmS "$PROXY_SCREEN" python3 "$PROJECT_DIR/server_dgxspark.py"
+fi
+
+# Both services are now running independently; this script can exit safely.
+cat <<EOF
+
+$(printf '\033[1;32m[ready]\033[0m') Both services are up in separate screen sessions:
+  - llama-server : session '$LLAMA_SCREEN'  (log: llama-server.log)
+  - proxy/UI     : session '$PROXY_SCREEN'  (log: proxy.log)
+
+Open http://localhost:$PROXY_PORT in your browser.
+
+Manage them:
+  screen -ls                          list sessions
+  screen -r $PROXY_SCREEN                attach to the proxy   (Ctrl-A then D to detach)
+  screen -r $LLAMA_SCREEN             attach to llama-server
+  screen -S $PROXY_SCREEN -X quit        stop ONLY the proxy (llama-server keeps running)
+  screen -S $LLAMA_SCREEN -X quit     stop llama-server
+EOF
