@@ -29,7 +29,9 @@ CHATBOT_REPO="https://github.com/publiusys/pollms.git"
 CHATBOT_SUBDIR="chatbot_m4"
 
 MODEL_DIR="$PROJECT_DIR/models"
-MODEL_FILE="Qwen3.5-4B-UD-IQ2_XXS.gguf"   # <-- change to match the file you downloaded
+#MODEL_FILE="Qwen3.5-27B-Q2_K.gguf"
+MODEL_FILE="Qwen2.5-7B-Instruct-Q8_0.gguf"
+#MODEL_FILE="Qwen3.5-4B-UD-IQ2_XXS.gguf"   # <-- change to match the file you downloaded
 MODEL_PATH="$MODEL_DIR/$MODEL_FILE"
 
 LLAMA_HOST="127.0.0.1"
