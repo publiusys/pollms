@@ -355,17 +355,18 @@
   const STOP_ICON = `<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>`;
 
   // ---------------- Efficiency config ----------------
-  // Set this per model/hardware page: 1 (most efficient) … 5 (least efficient)
-  const EFFICIENCY_SCORE = 1;
+  // Set this per model/hardware page: 1 (least efficient) … 5 (most efficient)
+  const EFFICIENCY_SCORE = 5;
   // TODO: not supported by backend yet. Set 1-5 once a tokens/sec -> score mapping exists.
   const SPEED_SCORE = null;
 
   // Brand tag shown next to "MochiAI", keyed to EFFICIENCY_SCORE (1..5)
-  const MOCHI_TAGS = { 1: "Pen 🖊️", 2: "Mix 🥣 ", 3: "Dip 🥨", 4: "Jam 🎸", 5: "Knit 🧶" };
+  const MOCHI_TAGS = { 5: "Pen 🖊️", 4: "Mix 🥣 ", 3: "Dip 🥨", 2: "Jam 🎸", 1: "Knit 🧶" };
   (function () {
     const el = document.getElementById("mochi-tag");
     const tag = MOCHI_TAGS[EFFICIENCY_SCORE];
       if (el && tag) el.textContent = ":    " + tag;
+    document.title = tag;
   })();
   
   // ---------------- Power telemetry ----------------
