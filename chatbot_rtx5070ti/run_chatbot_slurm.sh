@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -N 1
 #SBATCH -w cs-hpc-node-1
-#SBATCH -t 1:00:00
+#SBATCH -t 30-00:00:00
 #SBATCH --mem=0
 #SBATCH --gres=gpu:1
 
@@ -20,9 +20,10 @@ echo "Waiting for $LLAMA_BIN to be ready...."
 sleep 10
 
 # Start the proxy server
-echo "Starting proxy server..."
 python3 server_rtx5070ti.py
+echo "Started proxy server..."
 
 # Cleanup
+echo "Cleaning up!"
 kill $LLAMA_PID
 
