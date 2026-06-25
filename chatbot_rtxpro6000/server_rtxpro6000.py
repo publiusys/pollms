@@ -41,7 +41,7 @@ LLAMA = "http://127.0.0.1:8080"
 PORT          = int(os.environ.get("PORT", "8000"))
 GPU_INDEX     = os.environ.get("GPU_INDEX", "0")
 N_CPU_SOCKETS = max(1, int(os.environ.get("N_CPU_SOCKETS", "2")))
-POWER_MODE    = os.environ.get("POWER_MODE", "auto")      # auto | sensors | dcmi_split
+POWER_MODE    = os.environ.get("POWER_MODE", "dcmi_split")      # auto | sensors | dcmi_split
 IPMITOOL_CMD  = os.environ.get("IPMITOOL_CMD", "ipmitool")
 
 # AMD "PPT" (package power tracking) line from `sensors`, e.g. "PPT: 84.00 W"
@@ -130,11 +130,15 @@ def power_sampler():
     while True:
         try:
             gpu_one = read_gpu_one()
-            gpu_all = read_gpu_all()
+            gpu_all = 0
+            #gpu_all = read_gpu_all()
             node    = read_node_dcmi()
-            cpu_pkg = read_cpu_pkg_sensors()
+            #cpu_pkg = read_cpu_pkg_sensors()
+            cpu_pkg = 0
+            cpu_w = 0
 
             # decide CPU term
+            """
             mode = POWER_MODE
             if mode == "auto":
                 mode = "sensors" if cpu_pkg is not None else "dcmi_split"
@@ -146,6 +150,13 @@ def power_sampler():
                 cpu_w = max(0.0, (node - gpu_all) / N_CPU_SOCKETS) if node else 0.0
 
             total = gpu_one + cpu_w
+            """
+            mode = POWER_MODE
+
+            # calculation to get fair power from a node with 5 GPUs with 2 CPU packages
+            total = ((node-((4*34)+gpu_one))/2) + gpu_one
+            #print(f"node={node}, gpu_one={gpu_one}, gpus={((4*34)+gpu_one)}, cpus={(node-((4*34)+gpu_one))/2}, total={total}")
+            
             with lock:
                 state["gpu_w"] = gpu_one
                 state["gpu_all_w"] = gpu_all
@@ -159,6 +170,9 @@ def power_sampler():
                         idle_samples.pop(0)
                     s = sorted(idle_samples)
                     state["idle_w"] = s[len(s) // 2]
+                #for k, v in state.items():
+                #    print(k, v)
+                #print("--------------------------------")
         except Exception as e:
             print(f"Error in power sampler thread: {e}")
         time.sleep(1)

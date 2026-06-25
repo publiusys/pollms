@@ -33,7 +33,7 @@ CUDA_ARCH="${CUDA_ARCH:-120}"               # 120 = Blackwell (RTX PRO 6000)
 
 MODEL_DIR="${MODEL_DIR:-$PROJECT_DIR/models}"
 MODEL_FILE="${MODEL_FILE:-Qwen3.5-27B-Q5_K_M.gguf}"   # ~96 GB VRAM/GPU: plenty of room
-MODEL_PATH="$MODEL_DIR/$MODEL_FILE"
+MODEL_PATH="${MODEL_PATH:-$MODEL_DIR/$MODEL_FILE}"
 
 LLAMA_HOST="127.0.0.1"
 LLAMA_PORT="8080"
@@ -45,11 +45,11 @@ PROXY_SCREEN="pro-proxy"
 # --- which GPU to run on (one of the 5) and how to attribute power ---
 GPU_INDEX="${GPU_INDEX:-0}"                  # physical GPU index 0..4
 N_CPU_SOCKETS="${N_CPU_SOCKETS:-2}"          # for the DCMI power split
-POWER_MODE="${POWER_MODE:-auto}"             # auto | sensors | dcmi_split
+POWER_MODE="${POWER_MODE:-dcmi_split}"             # auto | sensors | dcmi_split
 IPMITOOL_CMD="${IPMITOOL_CMD:-ipmitool}"     # e.g. "sudo ipmitool" if root-only
 
 N_GPU_LAYERS="${N_GPU_LAYERS:-99}"
-CTX_SIZE="${CTX_SIZE:-8192}"
+CTX_SIZE="${CTX_SIZE:-262144}"
 PARALLEL="${PARALLEL:-1}"
 BLOCK="${BLOCK:-1}"
 # --------------------------------------------------------------------------
@@ -127,8 +127,8 @@ nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader | sed 's/^/
 LLAMA_FLAGS=(
   -m "$MODEL_PATH"
   --host "$LLAMA_HOST" --port "$LLAMA_PORT"
-  -c "$CTX_SIZE"
   -ngl "$N_GPU_LAYERS"
+  -c "$CTX_SIZE"
   -fa on
   --parallel "$PARALLEL"
   --reasoning-format auto
