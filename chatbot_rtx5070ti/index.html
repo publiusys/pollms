@@ -411,7 +411,7 @@
   // ---------------- Power telemetry ----------------
   function accumulateEnergy() {
     const now = performance.now();
-    if (lastPowerTs != null && isStreaming) {
+    if (lastPowerTs != null) { //  && isStreaming -> disable to always update
       const dtHours = (now - lastPowerTs) / 3.6e6;   // ms -> hours
       let watts = powerState.current_w;
       energyWh += watts * dtHours;

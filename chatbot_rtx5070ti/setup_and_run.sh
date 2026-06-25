@@ -142,7 +142,7 @@ log "GPU(s) visible:"
 nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader | sed 's/^/  /' || true
 
 # Remove existing screen if there are any
-screen -wipe
+# screen -wipe
 
 # 5. Start llama-server in its own detached screen session ------------------
 LLAMA_FLAGS=(
