@@ -68,7 +68,7 @@
   .eco-row.dim  { opacity: .35; transition: opacity .25s; }
   .eco-row.live { opacity: 1;   transition: opacity .25s; }
   .eco-val.pulse  { color: var(--green);  font-weight: 600; }
-  .eco-val.idlehi { color: var(--yellow); font-weight: 600; }
+  .eco-val.idlehi { color: var(--green); font-weight: 600; }
   .eco-val.highlight { color: var(--green); font-weight: 600; }
 
   /* ---------- Main ---------- */
@@ -187,10 +187,9 @@
   .light[data-level="4"].on { opacity: 1; box-shadow: 0 0 7px #84cc16; }
   .light[data-level="5"].on { opacity: 1; box-shadow: 0 0 7px #22c55e; }
 
-  /* lit + pulsing while generating */
+  /* lit, steady (no pulse) */
   .light.on {
   opacity: 1;
-  animation: light-pulse 1.0s ease-in-out infinite;
   }
   
   @keyframes light-pulse {
@@ -234,7 +233,7 @@
     </div>
   </aside> -->
   <aside class="sidebar">
-  <h1>MochiAI</h1>
+  <h1>MochiAI <span id="mochi-tag"></span></h1>
 
   <h4>Session Stats</h4>
 
@@ -252,12 +251,19 @@
 
   <!-- TODO: needs cumulative energy (kWh) + carbon intensity + trees/kgCO2 constant.
        Backend /power only gives instantaneous watts, not energy. Placeholder for now. -->
-  <div class="eco-row">Grams of Carbon Dioxide Generated</div>
+  <div class="eco-row">CO₂ Generated</div>
   <span class="eco-val highlight" id="tt-carbon">—</span>
   <br>
   
+  <!-- Trees-to-offset metric — kept for future use, see updateTrees() in JS.
   <div class="eco-row">Trees to Offset Dioxide Carbon</div>
   <span class="eco-val highlight" id="tt-trees">—</span>
+  <br>
+  -->
+
+  <div class="eco-row">Glasses of Water Consumed</div>
+  <!--<div class="eco-row">Water Consumed</div>-->
+  <span class="eco-val highlight" id="tt-water">—</span>
   <br>
 
   <div class="eco-row dim" id="row-idle">Idle Power</div>
@@ -279,24 +285,8 @@
     </div>
   </div>
   <br>
-  <span class="eco-key">Quality * Metric</span>
-  <br><br>
-
-  <!-- TODO: Operating Speed score (1-5). Needs a tokens/sec -> score mapping.
-       Not provided by backend yet; SPEED_SCORE is null so no light shows. -->
-  <div class="eco-row">Operating Speed</div>
-  <div class="eco-row dim" id="row-speed">
-    <div class="traffic" id="traffic-speed">
-      <span class="light" data-level="1"></span>
-      <span class="light" data-level="2"></span>
-      <span class="light" data-level="3"></span>
-      <span class="light" data-level="4"></span>
-      <span class="light" data-level="5"></span>
-    </div>
-  </div>
-  <br>
-  <span class="eco-key">Quality * Metric</span>
-  <br><br>
+  <!--<span class="eco-key">Quality * Metric</span>
+  <br><br>-->
   </aside>
   
   <!-- ================= Main ================= -->
@@ -355,41 +345,141 @@
   // CIuse from ACT (Gupta et al., ISCA 2022, https://dl.acm.org/doi/10.1145/3470496.3527408), Table 6
   const CARBON_INTENSITY_G_PER_KWH = 380;     // US avg
   // USDA / Arbor Day (https://www.usda.gov/about-usda/news/blog/power-one-tree-very-air-we-breathe): mature tree absorbs >48 lb CO2/yr = 21,772 g/yr
-  const TREE_G_CO2_PER_YEAR = 21772;
+  //const TREE_G_CO2_PER_YEAR = 21772;          // kept for future use (see updateTrees)
+  // Water-use equivalent. Brightest (https://www.brightest.io/calculate-carbon-footprint-water-emissions):
+  // regular water supply/treatment emits ~0.340–0.46 kg CO2 per cubic meter; use the midpoint.
+  //const WATER_G_CO2_PER_M3 = 400;             // g CO2 per m^3 of water (midpoint of 340–460)
+  
+  // ---------------- Water config ----------------
+  // Operational-water model from Li et al. 2023 (arXiv:2304.03271):
+  //   scope 1 (on-site cooling)      = E_IT * WUE_onsite
+  //   scope 2 (electricity generation) = E_IT * PUE * EWIF
+  // PUE multiplies ONLY scope 2, because the grid powers the whole facility, not just IT.
+  
+  const FL_OZ_PER_LITER = 33.814;             // 1 L = 33.814 US fl oz (1 fl oz = 29.5735 mL)
+  const GLASS_ML = 236.588;                   // a regular glass = 8 US fl oz (no longer used; output is fl oz)
+  
+  // --- Scope 1: on-site WUE (L / kWh of IT energy) ---
+  // https://billcarley.substack.com/p/hyperscale-data-center-water-report
+  const WUE_INDUSTRY_AVERAGE = 1.8;           // reference only — NOT used in the calc below
+  // https://blogs.microsoft.com/blog/2026/06/24/inside-microsofts-two-decade-push-to-cut-water-intensity-while-scaling-for-growth/
+  const WUE_MICROSOFT_HYPERSCALER = 0.27;     // ACTIVE scope-1 value  
+  
+  // --- Scope 2: off-site electricity water intensity, EWIF (L / kWh of electricity) ---
+  // The scope-2 grid figure is the contested term, so keep a low / medium / high band
+  // and pick one for the displayed number. Switch SCOPE2_SCENARIO to report the band.
+  const EWIF_SCOPE2 = {
+      // Hydro-excluded US electric-power water consumption (reservoir evaporation removed).
+      // construction-physics.com/p/i-was-wrong-about-data-center-water  — low-end estimate
+      low:    2.1,
+      // WRI / Macknick US-average water-consumption intensity; also used by Li et al. 2023
+      // (arXiv:2304.03271). Sits ~midway between the low and high estimates.
+      medium: 3.14,
+      // US avg electric-power water consumption, LBNL 2024 US Data Center Energy Report
+      // (Shehabi et al., LBNL-2001637).  High-end estimate.
+      high:   4.35,
+  };
+
+  // --- PUE: facility overhead = grid electricity drawn / IT energy. Modern hyperscale ≈ 1.12–1.18. ---
+  // Set to 1.0 if you want scope 2 charged against IT energy only (ignoring facility overhead).
+  const PUE = 1.15;
+  
+  // Active scenario for the displayed number. Set to "low" / "medium" / "high".
+  const SCOPE2_SCENARIO = "medium";
+  const EWIF_SCOPE2_L_PER_KWH = EWIF_SCOPE2[SCOPE2_SCENARIO];
+  
   
   const SEND_ICON = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
   const STOP_ICON = `<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>`;
 
   // ---------------- Efficiency config ----------------
-  // Set this per model/hardware page: 1 (most efficient) … 5 (least efficient)
-  const EFFICIENCY_SCORE = 1;
+  // Set this per model/hardware page: 1 (least efficient) … 5 (most efficient)
+  const EFFICIENCY_SCORE = 4;
+    
   // TODO: not supported by backend yet. Set 1-5 once a tokens/sec -> score mapping exists.
   const SPEED_SCORE = null;
+  
+  // Brand tag shown next to "MochiAI", keyed to EFFICIENCY_SCORE (1..5)
+  const MOCHI_TAGS = { 5: "Pen 🖊️", 4: "Mix 🥣 ", 3: "Dip 🥨", 2: "Jam 🎸", 1: "Knit 🧶" };
+  (function () {
+    const el = document.getElementById("mochi-tag");
+    const tag = MOCHI_TAGS[EFFICIENCY_SCORE];
+      if (el && tag) el.textContent = ":    " + tag;
+    document.title = tag;
+  })();
   
   // ---------------- Power telemetry ----------------
   function accumulateEnergy() {
     const now = performance.now();
-    if (lastPowerTs != null && isStreaming) {
+    if (lastPowerTs != null) { //  && isStreaming -> turned off to always update co2 and oz water
       const dtHours = (now - lastPowerTs) / 3.6e6;   // ms -> hours
       let watts = powerState.current_w;
       energyWh += watts * dtHours;
-      updateTrees();
+      updateMetrics();
+      //updateTrees();
     }
     lastPowerTs = now;
   }
 
-  function updateTrees() {
+  function updateMetrics() {
+      const kWh = energyWh / 1000;                       // IT (server) energy, kWh
+
+      // ---- Carbon ----
+      const co2g = kWh * CARBON_INTENSITY_G_PER_KWH;     // grams CO2
+      document.getElementById("tt-carbon").textContent = co2g.toFixed(6) + " g CO\u2082";
+      
+      // ---- Operational water consumed (scope 1 + scope 2) ----
+      const scope1Liters = kWh * WUE_INDUSTRY_AVERAGE
+      const scope2Liters = kWh * PUE * EWIF_SCOPE2_L_PER_KWH;      // electricity generation
+      const totalLiters  = scope1Liters + scope2Liters;
+      
+      const scope1FlOz = scope1Liters * FL_OZ_PER_LITER;
+      const scope2FlOz = scope2Liters * FL_OZ_PER_LITER;
+      const totalFlOz  = totalLiters  * FL_OZ_PER_LITER;
+      const glasses = (totalLiters * 1000) / GLASS_ML;   // 1 glass = 8 fl oz
+  
+      //document.getElementById("tt-water").textContent = totalFlOz.toFixed(6) + " fl oz (" + glasses.toFixed(6) + " glasses of water)";
+      //document.getElementById("tt-water").textContent = totalFlOz.toFixed(6) + " fl oz";
+      document.getElementById("tt-water").textContent = glasses.toFixed(6);
+  
+      // To show the scope split instead, swap the line above for:
+      // document.getElementById("tt-water").textContent =
+      //   `${totalFlOz.toFixed(6)} fl oz  (S1 ${scope1FlOz.toFixed(6)} / S2 ${scope2FlOz.toFixed(6)})`;
+  }
+  
+  /*function updateMetrics() {
+      const kWh     = energyWh / 1000;
+      const co2g    = kWh * CARBON_INTENSITY_G_PER_KWH;   // grams CO2
+      document.getElementById("tt-carbon").textContent = co2g.toFixed(6) + " g CO\u2082";
+
+      // ---- Actual Cooling Water Consumed ----
+      // 1. Find total liters consumed
+      const waterLiters = kWh * WUE_INDUSTRY_AVERAGE;
+      // 2. Convert Liters to mL (x1000) and then divide by glass size
+      const glasses = (waterLiters * 1000) / GLASS_ML;
+      document.getElementById("tt-water").textContent = glasses.toFixed(6) + " glasses";
+  }*/
+
+    /*function updateTrees() {
     const kWh     = energyWh / 1000;
     const co2g    = kWh * CARBON_INTENSITY_G_PER_KWH;   // grams CO2
-    const trees = co2g / TREE_G_CO2_PER_YEAR;         // tree-years to offset
 
     document.getElementById("tt-carbon").textContent = co2g.toFixed(5) + " g CO\u2082";
-    document.getElementById("tt-trees").textContent = trees.toFixed(10) + " trees";
+
+    // ---- Glasses of water equivalent ----
+    // co2g (g) / WATER_G_CO2_PER_M3 (g/m^3) = m^3 of water with the same footprint.
+    // m^3 -> mL (x1e6) -> glasses (/ GLASS_ML).
+    const glasses = (co2g / WATER_G_CO2_PER_M3) * 1e6 / GLASS_ML;
+    document.getElementById("tt-water").textContent = glasses.toFixed(6) + " glasses";
+
+    // ---- Trees-to-offset metric: kept for future use ----
+    // const trees = co2g / TREE_G_CO2_PER_YEAR;         // tree-years to offset
+    // document.getElementById("tt-trees").textContent = trees.toFixed(10) + " trees";
     // grams is the legible number; trees is tiny per session
     //document.getElementById("tt-trees").textContent =
     //  co2g.toFixed(3) + " g CO\u2082  (" + (treeYrs * 365).toFixed(2) + " tree-days)";
-  }
-  
+    }*/
+
   async function pollPower() {
     try {
       const r = await fetch("/power");
@@ -555,19 +645,21 @@
     updateTokens();
   }
 
-  function setTraffic(groupId, rowId, score) {
+  function setTraffic(groupId, rowId, score, always=false) {
     const row = document.getElementById(rowId);
+    if (!row) return;
+    const lit = always || isStreaming;   // `always` keeps the light on permanently
     document.querySelectorAll(`#${groupId} .light`).forEach(l => {
     const level = parseInt(l.dataset.level, 10);
-    if (isStreaming && score != null && level === score) l.classList.add("on");
+    if (lit && score != null && level === score) l.classList.add("on");
       else l.classList.remove("on");
       });
-    if (isStreaming) { row.classList.add("live"); row.classList.remove("dim"); }
-    else             { row.classList.add("dim");  row.classList.remove("live"); }
+    if (lit) { row.classList.add("live"); row.classList.remove("dim"); }
+    else     { row.classList.add("dim");  row.classList.remove("live"); }
   }
   function renderEfficiency() {
-    setTraffic("traffic-eco",   "row-eff",   EFFICIENCY_SCORE);
-    setTraffic("traffic-speed", "row-speed", SPEED_SCORE);   // TODO: no-op until SPEED_SCORE is set
+    // Eco-efficiency light stays on permanently (always=true)
+    setTraffic("traffic-eco", "row-eff", EFFICIENCY_SCORE, true);
   }
   
   /*function renderEfficiency() {
