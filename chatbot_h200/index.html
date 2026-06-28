@@ -262,7 +262,7 @@
   -->
 
   <!--<div class="eco-row">Glasses of Water for Cooling</div>-->
-  <div class="eco-row">Water Consumed</div>
+  <div class="eco-row">Glasses of Water Consumed</div>
   <span class="eco-val highlight" id="tt-water">—</span>
   <br>
 
@@ -429,17 +429,18 @@
       document.getElementById("tt-carbon").textContent = co2g.toFixed(6) + " g CO\u2082";
       
       // ---- Operational water consumed (scope 1 + scope 2) ----
-      const scope1Liters = kWh * WUE_MICROSOFT_HYPERSCALER;        // on-site cooling
+      const scope1Liters = kWh * WUE_INDUSTRY_AVERAGE;  
+      //const scope1Liters = kWh * WUE_MICROSOFT_HYPERSCALER;        // on-site cooling
       const scope2Liters = kWh * PUE * EWIF_SCOPE2_L_PER_KWH;      // electricity generation
       const totalLiters  = scope1Liters + scope2Liters;
       
       const scope1FlOz = scope1Liters * FL_OZ_PER_LITER;
       const scope2FlOz = scope2Liters * FL_OZ_PER_LITER;
       const totalFlOz  = totalLiters  * FL_OZ_PER_LITER;
-      //const glasses = (totalLiters * 1000) / GLASS_ML;   // 1 glass = 8 fl oz
+      const glasses = (totalLiters * 1000) / GLASS_ML;   // 1 glass = 8 fl oz
   
       //document.getElementById("tt-water").textContent = totalFlOz.toFixed(6) + " fl oz (" + glasses.toFixed(6) + " glasses of water)";
-      document.getElementById("tt-water").textContent = totalFlOz.toFixed(6) + " fl oz";
+      document.getElementById("tt-water").textContent = glasses.toFixed(6);
   
       // To show the scope split instead, swap the line above for:
       // document.getElementById("tt-water").textContent =

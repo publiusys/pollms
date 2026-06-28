@@ -2,7 +2,7 @@
 #SBATCH -N 1
 #SBATCH -w gpu0004
 #SBATCH --partition=GPU
-#SBATCH -t 1:30:00
+#SBATCH -t 24:00:00
 #SBATCH --mem=200GB
 #SBATCH --cpus-per-task=48
 #SBATCH --gres=gpu:1
